@@ -1,23 +1,29 @@
-CC = g++ -std=c89 -Wall -Wextra -pedantic -mavx 
-CFLAGS = -Ilib/glfw/include -Ilib/vulkan/Include
-LDFLAGS = -Llib/glfw/lib -Llib/vulkan/Lib -lglfw3 -lopengl32 -lgdi32 -luser32 -lvulkan-1
+CC = g++ -mavx 
+CFLAGS = -Ilib/glfw/include -Ilib/vulkan/Include -Ilib/imgui
+LDFLAGS = -Llib/glfw/lib -Llib/vulkan/Lib lib/imgui/libimgui.a -lglfw3 -lopengl32 -lgdi32 -luser32 -lvulkan-1 
 
-SRC = $(wildcard src/*.c)
-OBJ = $(SRC:.c=.o)
+SRC  = $(wildcard src/**/*.c) $(wildcard src/*.c) $(wildcard src/**/**/*.c) $(wildcard src/**/**/**/*.c) 
+OBJ  = $(SRC:.c=.o)
 BIN = bin
 
 .PHONY: all clean
 
-all: game
+all: libs game
+
+libs:
+	cd lib/imgui && make
+
+dirs:
+	mkdir -p .\$(BIN)
 
 run: all
-	$(BIN)/Magi
+	$(BIN)/S2
 
 game: $(OBJ)
-	$(CC) -o $(BIN)/Magi $^ $(LDFLAGS)
+	$(CC) -o $(BIN)/S2 $^ $(LDFLAGS)
 
 %.o: %.c
 	$(CC) -o $@ -c $< $(CFLAGS)
 
 clean:
-	del /Q bin\*.exe src\*.o
+		del /Q bin\*.exe src\main.o lib\imgui\*.o

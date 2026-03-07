@@ -1,13 +1,3 @@
-
-/*
-  File: $
-  Date: $
-  Revision: $
-  Creator: Brendan Bird $
-  Notice: (C) Copyright 2025 by Bitwise Studio, Inc. All Rights Reserved. $
-  =================================================================
-*/
-
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
@@ -15,6 +5,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+
+#include <imgui.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_vulkan.h>
 
 const char *validation_layers[] = {
     "VK_LAYER_KHRONOS_validation"
@@ -95,8 +89,8 @@ VkExtent2D choose_swap_extent(const VkSurfaceCapabilitiesKHR capabilities, GLFWw
         int width, height;
         glfwGetFramebufferSize(window, &width, &height);
         VkExtent2D actual_extent = {
-            width = (uint32_t)width,
-            height = (uint32_t)height
+            .width = (uint32_t)width,
+            .height = (uint32_t)height
         };
 
         actual_extent.width = (actual_extent.width < capabilities.minImageExtent.width) ? capabilities.minImageExtent.width : actual_extent.width;
@@ -257,9 +251,9 @@ void create_instance(VkInstance *instance)
 
     VkApplicationInfo app_info = {};
     app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    app_info.pApplicationName = "Magi";
+    app_info.pApplicationName = "s2";
     app_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-    app_info.pEngineName = "Magi";
+    app_info.pEngineName = "s2";
     app_info.engineVersion = VK_MAKE_VERSION(1, 0, 0);
     app_info.apiVersion = VK_API_VERSION_1_0;
 
@@ -615,6 +609,11 @@ VkPipeline create_graphics_pipeline(VkDevice device, VkExtent2D extent, VkShader
     return graphics_pipeline;
 }
 
+void recreate_swapchain()
+{
+    
+}
+
 int main(void)
 {
     // GLFW initialization
@@ -623,10 +622,12 @@ int main(void)
         return -1;
     }
 
+    GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+    const GLFWvidmode* mode = glfwGetVideoMode(monitor);
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    GLFWwindow *window = glfwCreateWindow(1280, 720, "s2-v0.0.1", NULL, NULL)
-    if (!window) {
-        fprintf(stderr, "Failed to create window.\n");
+    GLFWwindow* window = glfwCreateWindow( mode->width, mode->height, "s2v-0.0.1", NULL, NULL );
+    glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
+    if (!window) { fprintf(stderr, "Failed to create window.\n");
         glfwTerminate();
         return -1;
     }
@@ -646,6 +647,13 @@ int main(void)
         glfwTerminate();
         return -1;
     }
+
+    ImGui_ImplVulkanH_Window g_MainWindowData;
+
+    int w, h;
+    glfwGetFramebufferSize(window, &w, &h);
+    ImGui_ImplVulkanH_Window* wd = &g_MainWindowData;
+    SetupVulkanWindow(wd, surface, w, h);
 
     // Physical and logical device
     VkPhysicalDevice physical_device;
@@ -784,31 +792,48 @@ int main(void)
         vkWaitForFences(device, 1, &in_flight_fence, VK_TRUE, UINT64_MAX);
         vkResetFences(device, 1, &in_flight_fence);
 
-        uint32_t image_index; 
-        vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, image_available_semaphore, VK_NULL_HANDLE, &image_index);
+        uint32_t image_index;
+        VkResult result = vkAcquireNextImageKHR(
+                                                device,
+                                                swapchain,
+                                                UINT64_MAX,
+                                                image_available_semaphore,
+                                                VK_NULL_HANDLE,
+                                                &image_index
+                                                );
+
+        if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+            // Handle swapchain recreation here
+            continue;
+        }
 
         VkPipelineStageFlags wait_stages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
         VkSubmitInfo submit_info = {};
         submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submit_info.waitSemaphoreCount = 1;
-        submit_info.pWaitSemaphores = &image_available_semaphore;
+        submit_info.pWaitSemaphores = &image_available_semaphore; // wait for image acquisition
         submit_info.pWaitDstStageMask = wait_stages;
         submit_info.commandBufferCount = 1;
         submit_info.pCommandBuffers = &command_buffers[image_index];
         submit_info.signalSemaphoreCount = 1;
-        submit_info.pSignalSemaphores = &render_finished_semaphore;
+        submit_info.pSignalSemaphores = &render_finished_semaphore; // signal when rendering finished
 
         vkQueueSubmit(graphics_queue, 1, &submit_info, in_flight_fence);
 
         VkPresentInfoKHR present_info = {};
         present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
         present_info.waitSemaphoreCount = 1;
-        present_info.pWaitSemaphores = &render_finished_semaphore;
+        present_info.pWaitSemaphores = &render_finished_semaphore; // wait for rendering
         present_info.swapchainCount = 1;
         present_info.pSwapchains = &swapchain;
         present_info.pImageIndices = &image_index;
 
-        vkQueuePresentKHR(present_queue, &present_info);
+        result = vkQueuePresentKHR(present_queue, &present_info);
+
+        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+            // Handle swapchain recreation here
+            continue;
+        }
     }
 
     vkDeviceWaitIdle(device);
@@ -826,6 +851,7 @@ int main(void)
         vkDestroyFramebuffer(device, framebuffers[i], NULL);
         vkDestroyImageView(device, swapchain_image_views[i], NULL);
     }
+    
     free(framebuffers);
     free(swapchain_image_views);
     free(swapchain_images);
@@ -850,4 +876,3 @@ int main(void)
 
     return 0;
 }
-
