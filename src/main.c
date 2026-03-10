@@ -528,17 +528,14 @@ VkPipeline create_graphics_pipeline(VkDevice device, VkExtent2D extent, VkShader
 
     VkPipelineShaderStageCreateInfo shader_stages[] = { vert_stage, frag_stage };
 
-    // Vertex input
     VkPipelineVertexInputStateCreateInfo vertex_input_info = {};
     vertex_input_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
 
-    // Input assembly
     VkPipelineInputAssemblyStateCreateInfo input_assembly = {};
     input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     input_assembly.primitiveRestartEnable = VK_FALSE;
 
-    // Viewport & scissor
     VkViewport viewport = {};
     viewport.x = 0.0f;
     viewport.y = 0.0f;
@@ -559,7 +556,6 @@ VkPipeline create_graphics_pipeline(VkDevice device, VkExtent2D extent, VkShader
     viewport_state.scissorCount = 1;
     viewport_state.pScissors = &scissor;
 
-    // Rasterizer
     VkPipelineRasterizationStateCreateInfo rasterizer = {};
     rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     rasterizer.depthClampEnable = VK_FALSE;
@@ -569,12 +565,10 @@ VkPipeline create_graphics_pipeline(VkDevice device, VkExtent2D extent, VkShader
     rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
     rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
 
-    // Multisampling
     VkPipelineMultisampleStateCreateInfo multisampling = {};
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
-    // Color blending
     VkPipelineColorBlendAttachmentState color_blend_attachment = {};
     color_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                                             VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
@@ -585,7 +579,6 @@ VkPipeline create_graphics_pipeline(VkDevice device, VkExtent2D extent, VkShader
     color_blending.attachmentCount = 1;
     color_blending.pAttachments = &color_blend_attachment;
 
-    // Pipeline creation
     VkGraphicsPipelineCreateInfo pipeline_info = {};
     pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipeline_info.stageCount = 2;
@@ -609,14 +602,209 @@ VkPipeline create_graphics_pipeline(VkDevice device, VkExtent2D extent, VkShader
     return graphics_pipeline;
 }
 
-void recreate_swapchain()
+void cleanup_swapchain(
+    VkDevice device,
+    VkSwapchainKHR swapchain,
+    VkFramebuffer* framebuffers,
+    VkImageView* image_views,
+    VkCommandPool command_pool,
+    VkCommandBuffer* command_buffers,
+    uint32_t image_count)
 {
-    
+    vkFreeCommandBuffers(device, command_pool, image_count, command_buffers);
+
+    for (uint32_t i = 0; i < image_count; i++) {
+        vkDestroyFramebuffer(device, framebuffers[i], NULL);
+        vkDestroyImageView(device, image_views[i], NULL);
+    }
+
+    vkDestroySwapchainKHR(device, swapchain, NULL);
 }
+
+void record_command_buffers(
+    VkCommandBuffer* command_buffers,
+    uint32_t image_count,
+    VkRenderPass render_pass,
+    VkFramebuffer* framebuffers,
+    VkExtent2D extent,
+    VkPipeline graphics_pipeline)
+{
+    for (uint32_t i = 0; i < image_count; i++) {
+
+        VkCommandBufferBeginInfo begin_info = {};
+        begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+
+        vkBeginCommandBuffer(command_buffers[i], &begin_info);
+
+        VkClearValue clear_color = { .color = {{1.f,0.f,0.f,1.f}} };
+
+        VkRenderPassBeginInfo rp_info = {};
+        rp_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        rp_info.renderPass = render_pass;
+        rp_info.framebuffer = framebuffers[i];
+        rp_info.renderArea.offset = (VkOffset2D){0,0};
+        rp_info.renderArea.extent = extent;
+        rp_info.clearValueCount = 1;
+        rp_info.pClearValues = &clear_color;
+
+        vkCmdBeginRenderPass(command_buffers[i], &rp_info, VK_SUBPASS_CONTENTS_INLINE);
+
+        vkCmdBindPipeline(command_buffers[i],
+                          VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          graphics_pipeline);
+
+        vkCmdDraw(command_buffers[i], 3, 1, 0, 0);
+
+        vkCmdEndRenderPass(command_buffers[i]);
+
+        vkEndCommandBuffer(command_buffers[i]);
+    }
+}
+
+void recreate_swapchain(
+    VkDevice device,
+    VkPhysicalDevice physical_device,
+    VkSurfaceKHR surface,
+    GLFWwindow* window,
+    QueueFamilyIndices indices,
+    VkPipeline graphics_pipeline,
+
+    VkFormat* swapchain_image_format,
+    VkExtent2D* swapchain_extent,
+
+    VkSwapchainKHR* swapchain,
+    VkImage** swapchain_images,
+    VkImageView** swapchain_image_views,
+    VkFramebuffer** framebuffers,
+    VkCommandBuffer** command_buffers,
+
+    VkRenderPass render_pass,
+    VkCommandPool command_pool,
+
+    uint32_t* image_count)
+{
+    int width = 0, height = 0;
+    while (width == 0 || height == 0) {
+        glfwGetFramebufferSize(window, &width, &height);
+        glfwWaitEvents();
+    }
+
+    vkDeviceWaitIdle(device);
+
+    cleanup_swapchain(
+        device,
+        *swapchain,
+        *framebuffers,
+        *swapchain_image_views,
+        command_pool,
+        *command_buffers,
+        *image_count
+    );
+
+    free(*framebuffers);
+    free(*swapchain_image_views);
+    free(*swapchain_images);
+    free(*command_buffers);
+
+    *swapchain = create_swapchain(
+        device,
+        physical_device,
+        surface,
+        window,
+        indices,
+        swapchain_image_format,
+        swapchain_extent
+    );
+
+    vkGetSwapchainImagesKHR(device, *swapchain, image_count, NULL);
+
+    *swapchain_images = (VkImage*)malloc(sizeof(VkImage) * (*image_count));
+    vkGetSwapchainImagesKHR(device, *swapchain, image_count, *swapchain_images);
+
+    *swapchain_image_views = (VkImageView*)malloc(sizeof(VkImageView) * (*image_count));
+
+    for (uint32_t i = 0; i < *image_count; i++) {
+
+        VkImageViewCreateInfo view_info = {};
+        view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        view_info.image = (*swapchain_images)[i];
+        view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        view_info.format = *swapchain_image_format;
+
+        view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        view_info.subresourceRange.baseMipLevel = 0;
+        view_info.subresourceRange.levelCount = 1;
+        view_info.subresourceRange.baseArrayLayer = 0;
+        view_info.subresourceRange.layerCount = 1;
+
+        vkCreateImageView(device, &view_info, NULL, &(*swapchain_image_views)[i]);
+    }
+
+    *framebuffers = (VkFramebuffer*)malloc(sizeof(VkFramebuffer) * (*image_count));
+
+    for (uint32_t i = 0; i < *image_count; i++) {
+
+        VkFramebufferCreateInfo fb_info = {};
+        fb_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        fb_info.renderPass = render_pass;
+        fb_info.attachmentCount = 1;
+        fb_info.pAttachments = &(*swapchain_image_views)[i];
+        fb_info.width = swapchain_extent->width;
+        fb_info.height = swapchain_extent->height;
+        fb_info.layers = 1;
+
+        vkCreateFramebuffer(device, &fb_info, NULL, &(*framebuffers)[i]);
+    }
+
+    *command_buffers = (VkCommandBuffer*)malloc(sizeof(VkCommandBuffer) * (*image_count));
+
+    VkCommandBufferAllocateInfo alloc_info = {};
+    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    alloc_info.commandPool = command_pool;
+    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc_info.commandBufferCount = *image_count;
+
+    vkAllocateCommandBuffers(device, &alloc_info, *command_buffers);
+    
+    record_command_buffers(
+    *command_buffers,
+    *image_count,
+    render_pass,
+    *framebuffers,
+    *swapchain_extent,
+    graphics_pipeline);
+}
+
+typedef struct {
+    VkInstance instance;
+    VkDebugUtilsMessengerEXT debug_messenger;
+    VkSurfaceKHR surface;
+    VkPhysicalDevice physical_device;
+    QueueFamilyIndices indices;
+    VkDevice device;
+    VkQueue graphics_queue, present_queue;
+    VkFormat swapchain_image_format;
+    VkExtent2D swapchain_extent;
+    VkSwapchainKHR swapchain;
+    uint32_t image_count;
+    VkImage* swapchain_images;
+    VkImageView* swapchain_image_views;
+    VkRenderPass render_pass;
+    VkPipelineLayout pipeline_layout;
+    VkPipeline graphics_pipeline;
+    VkFramebuffer* framebuffers;
+    VkCommandPool command_pool;
+    VkCommandPoolCreateInfo pool_info;
+    VkCommandBuffer* command_buffers;
+    VkCommandBufferAllocateInfo alloc_info;
+    VkSemaphore image_available_semaphore, render_finished_semaphore;
+    VkFence in_flight_fence;
+    VkSemaphoreCreateInfo sem_info;
+    VkFenceCreateInfo fence_info;
+} s2_vulkan_renderer;
 
 int main(void)
 {
-    // GLFW initialization
     if (!glfwInit()) {
         fprintf(stderr, "Failed to initialize GLFW.\n");
         return -1;
@@ -624,21 +812,22 @@ int main(void)
 
     GLFWmonitor* monitor = glfwGetPrimaryMonitor();
     const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+    
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    GLFWwindow* window = glfwCreateWindow( mode->width, mode->height, "s2v-0.0.1", NULL, NULL );
+    
+    GLFWwindow* window = glfwCreateWindow(mode->width, mode->height, "s2v-0.0.1", NULL, NULL);
     glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
-    if (!window) { fprintf(stderr, "Failed to create window.\n");
+    if (!window) {
+        fprintf(stderr, "Failed to create window.\n");
         glfwTerminate();
         return -1;
     }
-
-    // Vulkan instance and debug
+    
     VkInstance instance;
     VkDebugUtilsMessengerEXT debug_messenger;
     create_instance(&instance);
     setup_debug_messenger(instance, &debug_messenger);
 
-    // Surface
     VkSurfaceKHR surface;
     if (glfwCreateWindowSurface(instance, window, NULL, &surface) != VK_SUCCESS) {
         fprintf(stderr, "Failed to create window surface.\n");
@@ -648,14 +837,6 @@ int main(void)
         return -1;
     }
 
-    ImGui_ImplVulkanH_Window g_MainWindowData;
-
-    int w, h;
-    glfwGetFramebufferSize(window, &w, &h);
-    ImGui_ImplVulkanH_Window* wd = &g_MainWindowData;
-    SetupVulkanWindow(wd, surface, w, h);
-
-    // Physical and logical device
     VkPhysicalDevice physical_device;
     pick_physical_device(instance, surface, &physical_device);
     printf("GPU successfully picked.\n");
@@ -666,13 +847,11 @@ int main(void)
     VkQueue graphics_queue, present_queue;
     create_logical_device(physical_device, indices, &device, &graphics_queue, &present_queue);
 
-    // Swapchain
     VkFormat swapchain_image_format;
     VkExtent2D swapchain_extent;
     VkSwapchainKHR swapchain = create_swapchain(device, physical_device, surface, window,
                                                 indices, &swapchain_image_format, &swapchain_extent);
-
-    // Swapchain images
+    
     uint32_t image_count;
     vkGetSwapchainImagesKHR(device, swapchain, &image_count, NULL);
     VkImage* swapchain_images = (VkImage*)malloc(sizeof(VkImage) * image_count);
@@ -700,7 +879,6 @@ int main(void)
         }
     }
 
-    // Shaders
     size_t vert_size, frag_size;
     uint32_t* vert_code = read_shader_file("res/shaders/vert.spv", &vert_size);
     uint32_t* frag_code = read_shader_file("res/shaders/frag.spv", &frag_size);
@@ -708,14 +886,13 @@ int main(void)
     VkShaderModule vert_shader = create_shader_module(device, vert_code, vert_size);
     VkShaderModule frag_shader = create_shader_module(device, frag_code, frag_size);
 
-    // Render pass & pipeline
+
     VkRenderPass render_pass = create_render_pass(device, swapchain_image_format);
     VkPipelineLayout pipeline_layout = create_pipeline_layout(device);
     VkPipeline graphics_pipeline = create_graphics_pipeline(device, swapchain_extent,
                                                             vert_shader, frag_shader,
                                                             render_pass, pipeline_layout);
 
-    // Framebuffers
     VkFramebuffer* framebuffers = (VkFramebuffer*)malloc(sizeof(VkFramebuffer) * image_count);
     for (uint32_t i = 0; i < image_count; ++i) {
         VkFramebufferCreateInfo fb_info = {};
@@ -733,7 +910,6 @@ int main(void)
         }
     }
 
-    // Command pool and buffers
     VkCommandPool command_pool;
     VkCommandPoolCreateInfo pool_info = {};
     pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -754,7 +930,7 @@ int main(void)
         begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         vkBeginCommandBuffer(command_buffers[i], &begin_info);
 
-        VkClearValue clear_color = { .color = {{0.0f, 0.0f, 0.0f, 1.0f}} };
+        VkClearValue clear_color = { .color = {{1.0f, 0.0f, 0.0f, 1.0f}} };
         VkRenderPassBeginInfo rp_info = {};
         rp_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         rp_info.renderPass = render_pass;
@@ -771,7 +947,6 @@ int main(void)
         vkEndCommandBuffer(command_buffers[i]);
     }
 
-    // Synchronization objects
     VkSemaphore image_available_semaphore, render_finished_semaphore;
     VkFence in_flight_fence;
 
@@ -785,7 +960,7 @@ int main(void)
     fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     vkCreateFence(device, &fence_info, NULL, &in_flight_fence);
 
-    // Main render loop
+    // render loop
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
@@ -803,7 +978,18 @@ int main(void)
                                                 );
 
         if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-            // Handle swapchain recreation here
+            recreate_swapchain(device, physical_device, surface, window, indices,
+                   graphics_pipeline,
+                   &swapchain_image_format,
+                   &swapchain_extent,
+                   &swapchain,
+                   &swapchain_images,
+                   &swapchain_image_views,
+                   &framebuffers,
+                   &command_buffers,
+                   render_pass,
+                   command_pool,
+                   &image_count);
             continue;
         }
 
@@ -831,14 +1017,25 @@ int main(void)
         result = vkQueuePresentKHR(present_queue, &present_info);
 
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-            // Handle swapchain recreation here
+            recreate_swapchain(device, physical_device, surface, window, indices,
+                               graphics_pipeline,
+                               &swapchain_image_format,
+                               &swapchain_extent,
+                               &swapchain,
+                               &swapchain_images,
+                               &swapchain_image_views,
+                               &framebuffers,
+                               &command_buffers,
+                               render_pass,
+                               command_pool,
+                               &image_count);
             continue;
         }
     }
 
     vkDeviceWaitIdle(device);
 
-    // Cleanup in correct order
+    // cleanup
     vkDestroyFence(device, in_flight_fence, NULL);
     vkDestroySemaphore(device, render_finished_semaphore, NULL);
     vkDestroySemaphore(device, image_available_semaphore, NULL);
