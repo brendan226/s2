@@ -74,7 +74,7 @@ VkSurfaceFormatKHR choose_swap_surface_format(const VkSurfaceFormatKHR* formats,
 VkPresentModeKHR choose_swap_present_mode(const VkPresentModeKHR* modes, uint32_t count)
 {
     for (uint32_t i = 0; i < count; i++) {
-        if (modes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
+        if (modes[i] == VK_PRESENT_MODE_FIFO_KHR) { // VSync On
             return modes[i];
         }
     }
@@ -636,7 +636,7 @@ void record_command_buffers(
 
         vkBeginCommandBuffer(command_buffers[i], &begin_info);
 
-        VkClearValue clear_color = { .color = {{1.f,0.f,0.f,1.f}} };
+        VkClearValue clear_color = { .color = {{0.f,0.f,0.f,1.f}} };
 
         VkRenderPassBeginInfo rp_info = {};
         rp_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -776,32 +776,22 @@ void recreate_swapchain(
 }
 
 typedef struct {
-    VkInstance instance;
-    VkDebugUtilsMessengerEXT debug_messenger;
-    VkSurfaceKHR surface;
-    VkPhysicalDevice physical_device;
-    QueueFamilyIndices indices;
     VkDevice device;
-    VkQueue graphics_queue, present_queue;
+    VkPhysicalDevice physical_device;
+    VkSurfaceKHR surface;
+    QueueFamilyIndices indices;
+    VkPipeline graphics_pipeline;
     VkFormat swapchain_image_format;
     VkExtent2D swapchain_extent;
     VkSwapchainKHR swapchain;
-    uint32_t image_count;
     VkImage* swapchain_images;
     VkImageView* swapchain_image_views;
-    VkRenderPass render_pass;
-    VkPipelineLayout pipeline_layout;
-    VkPipeline graphics_pipeline;
     VkFramebuffer* framebuffers;
-    VkCommandPool command_pool;
-    VkCommandPoolCreateInfo pool_info;
     VkCommandBuffer* command_buffers;
-    VkCommandBufferAllocateInfo alloc_info;
-    VkSemaphore image_available_semaphore, render_finished_semaphore;
-    VkFence in_flight_fence;
-    VkSemaphoreCreateInfo sem_info;
-    VkFenceCreateInfo fence_info;
-} s2_vulkan_renderer;
+    VkRenderPass render_pass;
+    VkCommandPool command_pool;
+    uint32_t image_count;
+} s2_renderer;
 
 int main(void)
 {
@@ -821,7 +811,7 @@ int main(void)
         fprintf(stderr, "Failed to create window.\n");
         glfwTerminate();
         return -1;
-    }
+    }    
     
     VkInstance instance;
     VkDebugUtilsMessengerEXT debug_messenger;
@@ -839,14 +829,13 @@ int main(void)
 
     VkPhysicalDevice physical_device;
     pick_physical_device(instance, surface, &physical_device);
-    printf("GPU successfully picked.\n");
 
     QueueFamilyIndices indices = find_queue_families(physical_device, surface);
 
     VkDevice device;
     VkQueue graphics_queue, present_queue;
     create_logical_device(physical_device, indices, &device, &graphics_queue, &present_queue);
-
+    
     VkFormat swapchain_image_format;
     VkExtent2D swapchain_extent;
     VkSwapchainKHR swapchain = create_swapchain(device, physical_device, surface, window,
@@ -925,28 +914,6 @@ int main(void)
     alloc_info.commandBufferCount = image_count;
     vkAllocateCommandBuffers(device, &alloc_info, command_buffers);
 
-    for (uint32_t i = 0; i < image_count; ++i) {
-        VkCommandBufferBeginInfo begin_info = {};
-        begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        vkBeginCommandBuffer(command_buffers[i], &begin_info);
-
-        VkClearValue clear_color = { .color = {{1.0f, 0.0f, 0.0f, 1.0f}} };
-        VkRenderPassBeginInfo rp_info = {};
-        rp_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        rp_info.renderPass = render_pass;
-        rp_info.framebuffer = framebuffers[i];
-        rp_info.renderArea.offset = (VkOffset2D){0,0};
-        rp_info.renderArea.extent = swapchain_extent;
-        rp_info.clearValueCount = 1;
-        rp_info.pClearValues = &clear_color;
-
-        vkCmdBeginRenderPass(command_buffers[i], &rp_info, VK_SUBPASS_CONTENTS_INLINE);
-        vkCmdBindPipeline(command_buffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline);
-        vkCmdDraw(command_buffers[i], 3, 1, 0, 0);
-        vkCmdEndRenderPass(command_buffers[i]);
-        vkEndCommandBuffer(command_buffers[i]);
-    }
-
     VkSemaphore image_available_semaphore, render_finished_semaphore;
     VkFence in_flight_fence;
 
@@ -960,9 +927,51 @@ int main(void)
     fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     vkCreateFence(device, &fence_info, NULL, &in_flight_fence);
 
+    // IMGUI
+    VkDescriptorPoolSize pool_sizes[] = {
+        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE },
+    };
+    VkDescriptorPoolCreateInfo dp_info = {};
+    dp_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    dp_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    dp_info.maxSets = 1;
+    
+    VkDescriptorPool imgui_descriptor_pool;
+    vkCreateDescriptorPool(device, &dp_info, NULL, &imgui_descriptor_pool);
+
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    
+    ImGui_ImplGlfw_InitForVulkan(window, true);
+    
+    ImGui_ImplVulkan_InitInfo init_info = {};
+    init_info.Instance       = instance;
+    init_info.PhysicalDevice = physical_device;
+    init_info.Device         = device;
+    init_info.QueueFamily    = indices.graphics_family;
+    init_info.Queue          = graphics_queue;
+    init_info.DescriptorPool = imgui_descriptor_pool;
+    init_info.MinImageCount  = 2;
+    init_info.ImageCount     = image_count;
+    init_info.PipelineInfoMain.RenderPass = render_pass;
+    ImGui_ImplVulkan_Init(&init_info);
+
     // render loop
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
+
+        ImGui_ImplVulkan_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+        ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
+
+        ImGui::Begin("Debug");
+        ImGui::Text("frame time: %.3f ms", 1000.0f / ImGui::GetIO().Framerate);
+        ImGui::End();
+
+        ImGui::Render();
 
         vkWaitForFences(device, 1, &in_flight_fence, VK_TRUE, UINT64_MAX);
         vkResetFences(device, 1, &in_flight_fence);
@@ -976,22 +985,47 @@ int main(void)
                                                 VK_NULL_HANDLE,
                                                 &image_index
                                                 );
-
+        
         if (result == VK_ERROR_OUT_OF_DATE_KHR) {
             recreate_swapchain(device, physical_device, surface, window, indices,
-                   graphics_pipeline,
-                   &swapchain_image_format,
-                   &swapchain_extent,
-                   &swapchain,
-                   &swapchain_images,
-                   &swapchain_image_views,
-                   &framebuffers,
-                   &command_buffers,
-                   render_pass,
-                   command_pool,
-                   &image_count);
+                               graphics_pipeline,
+                               &swapchain_image_format,
+                               &swapchain_extent,
+                               &swapchain,
+                               &swapchain_images,
+                               &swapchain_image_views,
+                               &framebuffers,
+                               &command_buffers,
+                               render_pass,
+                               command_pool,
+                               &image_count);
             continue;
         }
+
+        vkResetCommandBuffer(command_buffers[image_index], 0);
+
+        VkCommandBufferBeginInfo begin_info = {};
+        begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        vkBeginCommandBuffer(command_buffers[image_index], &begin_info);
+
+        VkClearValue clear_color = { .color = {{0.0f, 0.0f, 0.0f, 1.0f}} };
+        VkRenderPassBeginInfo rp_info = {};
+        rp_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        rp_info.renderPass = render_pass;
+        rp_info.framebuffer = framebuffers[image_index];
+        rp_info.renderArea.offset = (VkOffset2D){0, 0};
+        rp_info.renderArea.extent = swapchain_extent;
+        rp_info.clearValueCount = 1;
+        rp_info.pClearValues = &clear_color;
+
+        vkCmdBeginRenderPass(command_buffers[image_index], &rp_info, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(command_buffers[image_index], VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline);
+        vkCmdDraw(command_buffers[image_index], 3, 1, 0, 0);
+
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command_buffers[image_index]);
+
+        vkCmdEndRenderPass(command_buffers[image_index]);
+        vkEndCommandBuffer(command_buffers[image_index]);
 
         VkPipelineStageFlags wait_stages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
         VkSubmitInfo submit_info = {};
