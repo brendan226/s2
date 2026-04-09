@@ -1,5 +1,5 @@
 CC = g++ -mavx 
-CFLAGS = -Ilib/glfw/include -Ilib/vulkan/Include -Ilib/imgui
+CFLAGS = -Iinclude/ -Ilib/glfw/include -Ilib/vulkan/Include -Ilib/imgui
 LDFLAGS = -Llib/glfw/lib -Llib/vulkan/Lib lib/imgui/libimgui.a -lglfw3 -lgdi32 -luser32 -lvulkan-1 
 
 SRC  = $(wildcard src/**/*.c) $(wildcard src/*.c) $(wildcard src/**/**/*.c) $(wildcard src/**/**/**/*.c) 

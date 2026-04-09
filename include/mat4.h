@@ -1,127 +1,80 @@
 #ifndef MAT4_H
 #define MAT4_H
 
-#define SIZE 4
-
 #include <math.h>
 #include <emmintrin.h>
 
-typedef struct {
-    float elements[SIZE][SIZE];
-} __attribute__((aligned(16))) mat4;
+#include "types.h"
 
-static inline void mat4_print(mat4 *m)
+#define S2_MAT4_IDENTITY_INIT  {{1.0f, 0.0f, 0.0f, 0.0f},               \
+                                 {0.0f, 1.0f, 0.0f, 0.0f},                    \
+                                 {0.0f, 0.0f, 1.0f, 0.0f},                    \
+                                 {0.0f, 0.0f, 0.0f, 1.0f}}
+
+#define S2_MAT4_ZERO_INIT      {{0.0f, 0.0f, 0.0f, 0.0f},                    \
+                                 {0.0f, 0.0f, 0.0f, 0.0f},                    \
+                                 {0.0f, 0.0f, 0.0f, 0.0f},                    \
+                                 {0.0f, 0.0f, 0.0f, 0.0f}}
+
+#define S2_MAT4_IDENTITY ((mat4)S2_MAT4_IDENTITY_INIT)
+#define S2_MAT4_ZERO     ((mat4)S2_MAT4_ZERO_INIT)
+
+static inline void mat4_print(mat4 m)
 {
-    for (int i = 0; i < SIZE; ++i) {
-        for (int j = 0; j < SIZE; ++j) {
-            printf("[%f]", m->elements[j][i]);
-        }
-        printf("\n");
+    for (int i = 0; i < 4; i++) {
+        printf("[ %f  %f  %f  %f ]\n", m[i][0], m[i][1], m[i][2], m[i][3]);
     }
 }
 
-static inline mat4 mat4_identity(void)
+static inline void mat4_identity(mat4 m)
 {
-    mat4 m = {0};
-    m.elements[0][0] = 1.0f;
-    m.elements[1][1] = 1.0f;
-    m.elements[2][2] = 1.0f;
-    m.elements[3][3] = 1.0f;    
-    return m;
+    mat4 t = S2_MAT4_IDENTITY_INIT;
+    memcpy(m, t, sizeof(mat4));
 }
 
-/* **What each intrinsic does:** */
-/* - `_mm_load_ps` — loads 4 floats from aligned memory into a 128 bit register */
-/* - `_mm_set1_ps` — broadcasts one float into all 4 lanes `[x,x,x,x]` */
-/* - `_mm_mul_ps` — multiplies 4 floats simultaneously */
-/* - `_mm_add_ps` — adds 4 floats simultaneously */
-/* - `_mm_store_ps` — stores 4 floats from register back to aligned memory */
-
-static inline mat4 mat4_mul(mat4 *a, mat4 *b)
+static inline void s2_mat4_mul(const mat4 a, const mat4 b, mat4 dest)
 {
-    mat4 res;  
-    __m128 a0 = _mm_load_ps(a->elements[0]);
-    __m128 a1 = _mm_load_ps(a->elements[1]);
-    __m128 a2 = _mm_load_ps(a->elements[2]);
-    __m128 a3 = _mm_load_ps(a->elements[3]);
+    __m128 a0 = _mm_load_ps(a[0]);
+    __m128 a1 = _mm_load_ps(a[1]);
+    __m128 a2 = _mm_load_ps(a[2]);
+    __m128 a3 = _mm_load_ps(a[3]);
 
     for (int i = 0; i < 4; ++i) {
-        __m128 b0 = _mm_set1_ps(b->elements[i][0]);
-        __m128 b1 = _mm_set1_ps(b->elements[i][1]);
-        __m128 b2 = _mm_set1_ps(b->elements[i][2]);
-        __m128 b3 = _mm_set1_ps(b->elements[i][3]);
-
-        __m128 col = _mm_add_ps(
-                                _mm_add_ps(_mm_mul_ps(a0, b0), _mm_mul_ps(a1, b1)),
-                                _mm_add_ps(_mm_mul_ps(a2, b2), _mm_mul_ps(a3, b3))
-                                );
-
-        _mm_store_ps(res.elements[i], col);
+        __m128 bi = _mm_load_ps(b[i]);
+        __m128 xxxx = _mm_shuffle_ps(bi, bi, _MM_SHUFFLE(0,0,0,0));
+        __m128 yyyy = _mm_shuffle_ps(bi, bi, _MM_SHUFFLE(1,1,1,1));
+        __m128 zzzz = _mm_shuffle_ps(bi, bi, _MM_SHUFFLE(2,2,2,2));
+        __m128 wwww = _mm_shuffle_ps(bi, bi, _MM_SHUFFLE(3,3,3,3));
+        __m128 r =
+            _mm_add_ps(
+                _mm_add_ps(_mm_mul_ps(a0, xxxx), _mm_mul_ps(a1, yyyy)),
+                _mm_add_ps(_mm_mul_ps(a2, zzzz), _mm_mul_ps(a3, wwww)));
+        _mm_store_ps(dest[i], r);
     }
-
-    return res;
 }
 
-static inline mat4 mat4_translate(float x, float y, float z)
+static inline void mat4_translate(float x, float y, float z, mat4 dest)
 {
-    mat4 m = mat4_identity();    
-    m.elements[3][0] = x;
-    m.elements[3][1] = y;
-    m.elements[3][2] = z;
-    return m;
+    dest = S2_MAT4_IDENTITY;
+    dest[3][0] = x;
+    dest[3][1] = y;
+    dest[3][2] = z;
 }
 
-static inline mat4 mat4_scale(float x, float y, float z)
+static inline void mat4_scale(float x, float y, float z, mat4 dest)
 {
-    mat4 m = mat4_identity();   
-    m.elements[0][0] = x;
-    m.elements[1][1] = y;
-    m.elements[2][2] = z;
-    return m;
+    dest = S2_MAT4_IDENTITY;
+    dest[0][0] = x;
+    dest[1][1] = y;
+    dest[2][2] = z;
 }
 
-static inline mat4 mat4_rotate_x(float angle_rad)
-{
-    float s, c;
-    sincosf(angle_rad, &s, &c);
-    mat4 m = mat4_identity();
-    m.elements[1][1] = c;
-    m.elements[1][2] = s;
-    m.elements[2][1] = -s;
-    m.elements[2][2] = c;
-    return m;
-}
-
-static inline mat4 mat4_rotate_y(float angle_rad)
-{
-    float s, c;
-    sincosf(angle_rad, &s, &c);
-    mat4 m = mat4_identity();
-    m.elements[0][0] = c;
-    m.elements[0][2] = -s;
-    m.elements[2][0] = s;
-    m.elements[2][2] = c;
-    return m;
-        
-}
-
-static inline mat4 mat4_rotate_z(float angle_rad)
-{
-    float s, c;
-    sincosf(angle_rad, &s, &c);
-    mat4 m = mat4_identity();    
-    m.elements[0][0] =  c;
-    m.elements[0][1] =  s;
-    m.elements[1][0] = -s;
-    m.elements[1][1] =  c;    
-    return m;
-}
-
-static inline mat4 mat4_perspective(void)
-{
+/* static inline mat4 mat4_perspective(void) */
+/* { */
     
-}
+/* } */
 
 /* static inline Mat4 mat4_look_at(Vec3 eye, Vec3 center, Vec3 up); */
 
 #endif
+
