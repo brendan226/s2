@@ -1,16 +1,18 @@
 @echo
-cd lib/vulkan/Bin/
 
-:: Compile vertex shader
-slangc.exe ../../../res/shaders/triangle.vert ^
+@cd lib/vulkan/Bin/
+
+@echo S2 loading shaders:
+slangc.exe ../../../res/shaders/cube.vert ^
     -target spirv ^
     -profile spirv_1_3 ^
     -emit-spirv-directly ^
     -o ../../../res/shaders/vert.spv
 
-:: Compile fragment shader
-slangc.exe ../../../res/shaders/triangle.frag ^
+slangc.exe ../../../res/shaders/cube.frag ^
     -target spirv ^
     -profile spirv_1_3 ^
     -emit-spirv-directly ^
     -o ../../../res/shaders/frag.spv
+
+@echo.

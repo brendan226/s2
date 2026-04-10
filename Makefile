@@ -1,4 +1,4 @@
-CC = g++ -mavx 
+CC = g++ -mavx2
 CFLAGS = -Iinclude/ -Ilib/glfw/include -Ilib/vulkan/Include -Ilib/imgui
 LDFLAGS = -Llib/glfw/lib -Llib/vulkan/Lib lib/imgui/libimgui.a -lglfw3 -lgdi32 -luser32 -lvulkan-1 
 
@@ -10,7 +10,10 @@ BIN = bin
 
 all: libs game
 
-libs:
+comp-shaders:
+	.\compile.bat
+
+libs: comp-shaders # sketch fix later
 	cd lib/imgui && make
 
 dirs:
@@ -26,4 +29,4 @@ game: $(OBJ)
 	$(CC) -o $@ -c $< $(CFLAGS)
 
 clean:
-		del /Q bin\*.exe src\main.o lib\imgui\*.o
+		del /Q bin\*.exe src\main.o lib\imgui\*.o res\shaders\*.spv

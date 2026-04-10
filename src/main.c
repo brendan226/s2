@@ -10,49 +10,11 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
 #include <math.h>
+#include <time.h>
+#include <windows.h>
 
 #include "vulkan.h"
-
-uint32_t find_memory_type(VkPhysicalDevice physical_device, uint32_t type_filter, VkMemoryPropertyFlags properties)
-{
-    VkPhysicalDeviceMemoryProperties mem_props;
-    vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_props);
-    for (uint32_t i = 0; i < mem_props.memoryTypeCount; i++)
-        if ((type_filter & (1 << i)) &&
-            (mem_props.memoryTypes[i].propertyFlags & properties) == properties)
-            return i;
-    fprintf(stderr, "Failed to find suitable memory type\n");
-    exit(EXIT_FAILURE);
-}
-
-void create_vertex_buffer(s2_renderer *renderer)
-{
-    VkBufferCreateInfo buf_info = {};
-    buf_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    buf_info.size  = sizeof(vertices);
-    buf_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    buf_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    vkCreateBuffer(renderer->device, &buf_info, NULL, &renderer->vertex_buffer);
-
-    VkMemoryRequirements mem_reqs;
-    vkGetBufferMemoryRequirements(renderer->device, renderer->vertex_buffer, &mem_reqs);
-
-    VkMemoryAllocateInfo alloc_info = {};
-    alloc_info.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc_info.allocationSize  = mem_reqs.size;
-    alloc_info.memoryTypeIndex = find_memory_type(
-        renderer->physical_device,
-        mem_reqs.memoryTypeBits,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    );
-    vkAllocateMemory(renderer->device, &alloc_info, NULL, &renderer->vertex_buffer_memory);
-    vkBindBufferMemory(renderer->device, renderer->vertex_buffer, renderer->vertex_buffer_memory, 0);
-
-    void *data;
-    vkMapMemory(renderer->device, renderer->vertex_buffer_memory, 0, sizeof(vertices), 0, &data);
-    memcpy(data, vertices, sizeof(vertices));
-    vkUnmapMemory(renderer->device, renderer->vertex_buffer_memory);
-}
+#include "math/math.h"
 
 int main(void)
 {
@@ -74,12 +36,12 @@ int main(void)
         return -1;
     }
 
-    s2_renderer renderer = {0};
+    s2_context renderer = {0};
 
     VkInstance instance;
     VkDebugUtilsMessengerEXT debug_messenger;
-    create_instance(&instance);
-    setup_debug_messenger(instance, &debug_messenger);
+    s2_create_instance(&instance);
+    s2_setup_debug_messenger(instance, &debug_messenger);
    
     if (glfwCreateWindowSurface(instance, window, NULL, &renderer.surface) != VK_SUCCESS) {
         fprintf(stderr, "Failed to create window surface.\n");
@@ -89,14 +51,14 @@ int main(void)
         return -1;
     }
 
-    pick_physical_device(instance, renderer.surface, &renderer.physical_device);
+    s2_pick_physical_device(instance, renderer.surface, &renderer.physical_device);
 
-    renderer.indices = find_queue_families(renderer.physical_device, renderer.surface);
+    renderer.indices = s2_find_queue_families(renderer.physical_device, renderer.surface);
 
     VkQueue graphics_queue, present_queue;
-    create_logical_device(renderer.physical_device, renderer.indices, &renderer.device, &graphics_queue, &present_queue);
+    s2_create_logical_device(renderer.physical_device, renderer.indices, &renderer.device, &graphics_queue, &present_queue);
 
-    renderer.swapchain = create_swapchain(renderer.device, renderer.physical_device, renderer.surface, window,
+    renderer.swapchain = s2_create_swapchain(renderer.device, renderer.physical_device, renderer.surface, window,
                                                 renderer.indices, &renderer.swapchain_image_format, &renderer.swapchain_extent);
     uint32_t image_count;
     vkGetSwapchainImagesKHR(renderer.device, renderer.swapchain, &image_count, NULL);
@@ -126,15 +88,15 @@ int main(void)
     }
 
     size_t vert_size, frag_size;
-    uint32_t* vert_code = read_shader_file("res/shaders/vert.spv", &vert_size);
-    uint32_t* frag_code = read_shader_file("res/shaders/frag.spv", &frag_size);
+    uint32_t* vert_code = s2_read_shader_file("res/shaders/vert.spv", &vert_size);
+    uint32_t* frag_code = s2_read_shader_file("res/shaders/frag.spv", &frag_size);
 
-    VkShaderModule vert_shader = create_shader_module(renderer.device, vert_code, vert_size);
-    VkShaderModule frag_shader = create_shader_module(renderer.device, frag_code, frag_size);
+    VkShaderModule vert_shader = s2_create_shader_module(renderer.device, vert_code, vert_size);
+    VkShaderModule frag_shader = s2_create_shader_module(renderer.device, frag_code, frag_size);
 
-    renderer.render_pass = create_render_pass(renderer.device, renderer.swapchain_image_format);
-    renderer.pipeline_layout = create_pipeline_layout(renderer.device);
-    renderer.graphics_pipeline = create_graphics_pipeline(renderer.device, renderer.swapchain_extent,
+    renderer.render_pass = s2_create_render_pass(renderer.device, renderer.swapchain_image_format);
+    renderer.pipeline_layout = s2_create_pipeline_layout(renderer.device);
+    renderer.graphics_pipeline = s2_create_graphics_pipeline(renderer.device, renderer.swapchain_extent,
                                                             vert_shader, frag_shader,
                                                             renderer.render_pass, renderer.pipeline_layout);
 
@@ -169,7 +131,7 @@ int main(void)
     alloc_info.commandBufferCount = image_count;
     vkAllocateCommandBuffers(renderer.device, &alloc_info, renderer.command_buffers);
 
-    create_vertex_buffer(&renderer);
+    s2_create_vertex_buffer(&renderer);
 
     VkSemaphore image_available_semaphore, render_finished_semaphore;
     VkFence in_flight_fence;
@@ -216,10 +178,23 @@ int main(void)
     init_info.PipelineInfoMain.RenderPass = renderer.render_pass;
     ImGui_ImplVulkan_Init(&init_info);
 
+    LARGE_INTEGER freq, last_time, current_time;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&last_time);
+
+    float fps = 0.0f;
+    float frame_time_ms = 0.0f;
+
     float angle = 0.0f;
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
+
+        QueryPerformanceCounter(&current_time);
+        frame_time_ms = (float)(current_time.QuadPart - last_time.QuadPart) * 1000.0f / freq.QuadPart;
+        fps = 1000.0f / frame_time_ms;
+        last_time = current_time;
+
         
         ImGui_ImplVulkan_NewFrame();
         ImGui_ImplGlfw_NewFrame();
@@ -227,6 +202,9 @@ int main(void)
         ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
 
         ImGui::Begin("Debug");
+        
+        ImGui::Text("frame rate: %.1f", fps);
+        ImGui::Separator();
         ImGui::Text("frame time: %.3f ms", 1000.0f / ImGui::GetIO().Framerate);
         ImGui::End();
 
