@@ -86,8 +86,8 @@ typedef struct {
     VkFramebuffer    *framebuffers;
     VkCommandBuffer  *command_buffers;
     VkDevice         device;
-    VkPhysicalDevice physical_device;
     VkSurfaceKHR     surface;
+    VkPhysicalDevice physical_device;
     VkSwapchainKHR   swapchain;
     VkRenderPass     render_pass;
     VkCommandPool    command_pool;
@@ -387,6 +387,17 @@ s2_queue_family s2_find_queue_families(VkPhysicalDevice device, VkSurfaceKHR sur
 
     free(queue_families);
     return indices;
+}
+
+void s2_create_suface(VkInstance instance, GLFWwindow *window)
+{
+    /* if (glfwCreateWindowSurface(instance, window, NULL, &renderer.surface) != VK_SUCCESS) { */
+    /*     fprintf(stderr, "Failed to create window surface.\n"); */
+    /*     vkDestroyInstance(instance, NULL); */
+    /*     glfwDestroyWindow(window); */
+    /*     glfwTerminate(); */
+    /*     return -1; */
+    /* } */
 }
 
 bool s2_is_device_suitable(VkPhysicalDevice device, VkSurfaceKHR surface)
@@ -690,6 +701,47 @@ VkPipeline s2_create_graphics_pipeline(VkDevice device, VkExtent2D extent, VkSha
     return graphics_pipeline;
 }
 
+uint32_t s2_find_memory_type(VkPhysicalDevice physical_device, uint32_t type_filter, VkMemoryPropertyFlags properties)
+{
+    VkPhysicalDeviceMemoryProperties mem_props;
+    vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_props);
+    for (uint32_t i = 0; i < mem_props.memoryTypeCount; i++)
+        if ((type_filter & (1 << i)) &&
+            (mem_props.memoryTypes[i].propertyFlags & properties) == properties)
+            return i;
+    fprintf(stderr, "Failed to find suitable memory type\n");
+    exit(EXIT_FAILURE);
+}
+
+void s2_create_vertex_buffer(s2_context *renderer)
+{
+    VkBufferCreateInfo buf_info = {};
+    buf_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buf_info.size  = sizeof(vertices);
+    buf_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    buf_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    vkCreateBuffer(renderer->device, &buf_info, NULL, &renderer->vertex_buffer);
+
+    VkMemoryRequirements mem_reqs;
+    vkGetBufferMemoryRequirements(renderer->device, renderer->vertex_buffer, &mem_reqs);
+
+    VkMemoryAllocateInfo alloc_info = {};
+    alloc_info.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    alloc_info.allocationSize  = mem_reqs.size;
+    alloc_info.memoryTypeIndex = s2_find_memory_type(
+        renderer->physical_device,
+        mem_reqs.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );
+    vkAllocateMemory(renderer->device, &alloc_info, NULL, &renderer->vertex_buffer_memory);
+    vkBindBufferMemory(renderer->device, renderer->vertex_buffer, renderer->vertex_buffer_memory, 0);
+
+    void *data;
+    vkMapMemory(renderer->device, renderer->vertex_buffer_memory, 0, sizeof(vertices), 0, &data);
+    memcpy(data, vertices, sizeof(vertices));
+    vkUnmapMemory(renderer->device, renderer->vertex_buffer_memory);
+}
+
 void s2_cleanup_swapchain(s2_context *renderer, uint32_t image_count)
 {
     vkFreeCommandBuffers(renderer->device, renderer->command_pool, image_count, renderer->command_buffers);
@@ -714,6 +766,7 @@ void s2_cleanup_swapchain(s2_context *renderer, uint32_t image_count)
 
 void s2_record_command_buffers(s2_context *renderer, uint32_t image_count)
 {
+    float angle = 0.0f;
     for (uint32_t i = 0; i < image_count; i++) {
 
         VkCommandBufferBeginInfo begin_info = {};
@@ -738,7 +791,28 @@ void s2_record_command_buffers(s2_context *renderer, uint32_t image_count)
                           VK_PIPELINE_BIND_POINT_GRAPHICS,
                           renderer->graphics_pipeline);
 
-        vkCmdDraw(renderer->command_buffers[i], 3, 1, 0, 0);
+        VkBuffer vbs[] = { renderer->vertex_buffer };
+        VkDeviceSize offsets[] = { 0 };
+        vkCmdBindVertexBuffers(renderer->command_buffers[i], 0, 1, vbs, offsets);
+
+        angle += 0.005f;
+
+        float cos_a = cosf(angle);
+        float sin_a = sinf(angle);
+
+        float mvp[16] = {
+            cos_a,  0.0f, sin_a, 0.0f,
+            0.0f,   1.0f, 0.0f,  0.0f,
+            -sin_a,  0.0f, cos_a, 0.0f,
+            0.0f,   0.0f, 0.0f,  1.0f,
+        };
+        
+        vkCmdPushConstants(renderer->command_buffers[i],
+                           renderer->pipeline_layout,
+                           VK_SHADER_STAGE_VERTEX_BIT,
+                           0, sizeof(mvp), mvp);
+
+        vkCmdDraw(renderer->command_buffers[i], 36, 1, 0, 0);
 
         vkCmdEndRenderPass(renderer->command_buffers[i]);
 
@@ -815,49 +889,10 @@ void s2_recreate_swapchain(s2_context *renderer, GLFWwindow *window, uint32_t im
     alloc_info.commandBufferCount = image_count;
 
     vkAllocateCommandBuffers(renderer->device, &alloc_info, renderer->command_buffers);
+
+    s2_create_vertex_buffer(renderer);
     
     s2_record_command_buffers(renderer, image_count);
-}
-
-uint32_t s2_find_memory_type(VkPhysicalDevice physical_device, uint32_t type_filter, VkMemoryPropertyFlags properties)
-{
-    VkPhysicalDeviceMemoryProperties mem_props;
-    vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_props);
-    for (uint32_t i = 0; i < mem_props.memoryTypeCount; i++)
-        if ((type_filter & (1 << i)) &&
-            (mem_props.memoryTypes[i].propertyFlags & properties) == properties)
-            return i;
-    fprintf(stderr, "Failed to find suitable memory type\n");
-    exit(EXIT_FAILURE);
-}
-
-void s2_create_vertex_buffer(s2_context *renderer)
-{
-    VkBufferCreateInfo buf_info = {};
-    buf_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    buf_info.size  = sizeof(vertices);
-    buf_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    buf_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    vkCreateBuffer(renderer->device, &buf_info, NULL, &renderer->vertex_buffer);
-
-    VkMemoryRequirements mem_reqs;
-    vkGetBufferMemoryRequirements(renderer->device, renderer->vertex_buffer, &mem_reqs);
-
-    VkMemoryAllocateInfo alloc_info = {};
-    alloc_info.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc_info.allocationSize  = mem_reqs.size;
-    alloc_info.memoryTypeIndex = s2_find_memory_type(
-        renderer->physical_device,
-        mem_reqs.memoryTypeBits,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    );
-    vkAllocateMemory(renderer->device, &alloc_info, NULL, &renderer->vertex_buffer_memory);
-    vkBindBufferMemory(renderer->device, renderer->vertex_buffer, renderer->vertex_buffer_memory, 0);
-
-    void *data;
-    vkMapMemory(renderer->device, renderer->vertex_buffer_memory, 0, sizeof(vertices), 0, &data);
-    memcpy(data, vertices, sizeof(vertices));
-    vkUnmapMemory(renderer->device, renderer->vertex_buffer_memory);
 }
 
 #endif 

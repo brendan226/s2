@@ -221,7 +221,7 @@ int main(void)
                                                 VK_NULL_HANDLE,
                                                 &image_index);
         if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-            /* recreate_swapchain(&renderer, window, image_count); */
+            s2_recreate_swapchain(&renderer, window, image_count);
             continue;
         }
 
@@ -296,7 +296,7 @@ int main(void)
         result = vkQueuePresentKHR(present_queue, &present_info);
 
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-            /* recreate_swapchain(&renderer, window, image_count); */
+            s2_recreate_swapchain(&renderer, window, image_count);
             continue;
         }
     }

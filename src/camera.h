@@ -4,23 +4,26 @@
 #include "../math/math.h"
 
 typedef struct {
-    vec3 pos;
+    mat4 view, projection;
+    
+    vec3 position;
+    vec3 target;
+    vec3 up;
 
     float yaw;
     float pitch;
-    float ms;
-    float mouse_sens;
     float fov;
-
-    mat4 view, model, proj;
-
-    bool first_mouse;
+    float aspect;
+    
+    float z_near;
+    float z_far;   
+    
     bool debug_ui;
-
-    double last_x;
-    double last_y;
 } s2_camera;
 
-void s2_camera_init(s2_camera *camera, vec3 pos, float yaw, float pitch, float fov);
+void s2_camera_init(s2_camera *camera, vec3 pos, vec3 up, float fov);
+void s2_camera_update(s2_camera *camera, GLFWwindow *window);
+void s2_camera_process_input(s2_camera *camera, GLFWwindow *window, float dt);
+void s2_camera_process_mouse(s2_camera *camera, double x_offset, double y_offset);
 
 #endif

@@ -76,14 +76,59 @@ S2_INLINE void s2_mat4_scale(mat4 m, float s)
 
 }
 
-S2_INLINE void s2_mat4_perspective(float fov, float aspect, float near, float far, mat4 dest)
-{
+S2_INLINE void s2_mat4_perspective(float fov, float aspect, float z_near, float z_far, mat4 dest)
+{    
+    float f = 1.0f / tanf(fov * 0.5f);
     
+    memset(dest, 0, sizeof(mat4));
+    
+    dest[0][0] =  f / aspect;
+    dest[1][1] = -f;
+    dest[2][2] =  z_far / (z_near - z_far);
+    dest[2][3] = -1.0f;
+    dest[3][2] = (z_near * z_far) / (z_near - z_far);
 }
 
 S2_INLINE void s2_mat4_lookat(vec3 eye, vec3 center, vec3 up, mat4 dest)
 {
+    // forward vector
+    float fx = center[0] - eye[0];
+    float fy = center[1] - eye[1];
+    float fz = center[2] - eye[2];
+    float flen = 1.0f / sqrtf(fx*fx + fy*fy + fz*fz);
+    fx *= flen; fy *= flen; fz *= flen;
 
+    // right vector = forward x up
+    float rx = fy*up[2] - fz*up[1];
+    float ry = fz*up[0] - fx*up[2];
+    float rz = fx*up[1] - fy*up[0];
+    float rlen = 1.0f / sqrtf(rx*rx + ry*ry + rz*rz);
+    rx *= rlen; ry *= rlen; rz *= rlen;
+
+    // up vector = right x forward
+    float ux = ry*fz - rz*fy;
+    float uy = rz*fx - rx*fz;
+    float uz = rx*fy - ry*fx;
+
+    dest[0][0] =  rx;
+    dest[0][1] =  ux;
+    dest[0][2] = -fx;
+    dest[0][3] =  0.0f;
+
+    dest[1][0] =  ry;
+    dest[1][1] =  uy;
+    dest[1][2] = -fy;
+    dest[1][3] =  0.0f;
+
+    dest[2][0] =  rz;
+    dest[2][1] =  uz;
+    dest[2][2] = -fz;
+    dest[2][3] =  0.0f;
+
+    dest[3][0] = -(rx*eye[0] + ry*eye[1] + rz*eye[2]);
+    dest[3][1] = -(ux*eye[0] + uy*eye[1] + uz*eye[2]);
+    dest[3][2] =  (fx*eye[0] + fy*eye[1] + fz*eye[2]);
+    dest[3][3] =  1.0f;
 }
 
 S2_INLINE void s2_mat4_translate(mat4 m, vec3 v)
