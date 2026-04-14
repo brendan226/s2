@@ -7,7 +7,7 @@ typedef struct {
 } Vertex;
 
 // cube
-static const Vertex vertices[] = {
+Vertex vertices[] = {
     {{-0.5f, -0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}},
     {{ 0.5f, -0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}},
     {{ 0.5f,  0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}},
@@ -81,24 +81,27 @@ typedef struct {
 } s2_swapchain_support;
 
 typedef struct {
-    VkImage          *swapchain_images;
-    VkImageView      *swapchain_image_views;
-    VkFramebuffer    *framebuffers;
-    VkCommandBuffer  *command_buffers;
+    VkImage*         swapchain_images;
+    VkImageView*     swapchain_image_views;
+    VkFramebuffer*   framebuffers;
+    VkCommandBuffer* command_buffers;
+    VkSwapchainKHR   swapchain;
+    VkInstance       instance;
     VkDevice         device;
     VkSurfaceKHR     surface;
     VkPhysicalDevice physical_device;
-    VkSwapchainKHR   swapchain;
     VkRenderPass     render_pass;
     VkCommandPool    command_pool;
     VkPipeline       graphics_pipeline;
     VkPipelineLayout pipeline_layout;
     VkExtent2D       swapchain_extent;
-    s2_queue_family  indices;
+    VkQueue          graphics_queue;
+    VkQueue          present_queue;
     VkFormat         swapchain_image_format;
-    VkBuffer         vertex_buffer;
-    VkDeviceMemory   vertex_buffer_memory;
-} s2_context;
+    s2_queue_family  indices;
+} s2_device_context;
+
+typedef VkDebugUtilsMessengerEXT s2_debug_utils_messenger;
 
 s2_swapchain_support query_swapchain_support(VkPhysicalDevice device, VkSurfaceKHR surface)
 {
@@ -389,15 +392,12 @@ s2_queue_family s2_find_queue_families(VkPhysicalDevice device, VkSurfaceKHR sur
     return indices;
 }
 
-void s2_create_suface(VkInstance instance, GLFWwindow *window)
+void s2_create_suface(VkInstance instance, VkSurfaceKHR *surface, GLFWwindow *window)
 {
-    /* if (glfwCreateWindowSurface(instance, window, NULL, &renderer.surface) != VK_SUCCESS) { */
-    /*     fprintf(stderr, "Failed to create window surface.\n"); */
-    /*     vkDestroyInstance(instance, NULL); */
-    /*     glfwDestroyWindow(window); */
-    /*     glfwTerminate(); */
-    /*     return -1; */
-    /* } */
+    if (glfwCreateWindowSurface(instance, window, NULL, surface) != VK_SUCCESS) {
+        fprintf(stderr, "Failed to create window surface. %s\n");
+        exit(EXIT_FAILURE);
+    }
 }
 
 bool s2_is_device_suitable(VkPhysicalDevice device, VkSurfaceKHR surface)
@@ -713,58 +713,58 @@ uint32_t s2_find_memory_type(VkPhysicalDevice physical_device, uint32_t type_fil
     exit(EXIT_FAILURE);
 }
 
-void s2_create_vertex_buffer(s2_context *renderer)
+void s2_create_vertex_buffer(s2_device_context *ctx, VkBuffer *vertex_buffer, VkDeviceMemory *vertex_buffer_memory)
 {
     VkBufferCreateInfo buf_info = {};
-    buf_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    buf_info.size  = sizeof(vertices);
-    buf_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    buf_info.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buf_info.size        = sizeof(vertices);
+    buf_info.usage       = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
     buf_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    vkCreateBuffer(renderer->device, &buf_info, NULL, &renderer->vertex_buffer);
+    vkCreateBuffer(ctx->device, &buf_info, NULL, vertex_buffer);
 
     VkMemoryRequirements mem_reqs;
-    vkGetBufferMemoryRequirements(renderer->device, renderer->vertex_buffer, &mem_reqs);
+    vkGetBufferMemoryRequirements(ctx->device, *vertex_buffer, &mem_reqs);
 
     VkMemoryAllocateInfo alloc_info = {};
     alloc_info.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     alloc_info.allocationSize  = mem_reqs.size;
     alloc_info.memoryTypeIndex = s2_find_memory_type(
-        renderer->physical_device,
+        ctx->physical_device,
         mem_reqs.memoryTypeBits,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     );
-    vkAllocateMemory(renderer->device, &alloc_info, NULL, &renderer->vertex_buffer_memory);
-    vkBindBufferMemory(renderer->device, renderer->vertex_buffer, renderer->vertex_buffer_memory, 0);
+    vkAllocateMemory(ctx->device, &alloc_info, NULL, vertex_buffer_memory);
+    vkBindBufferMemory(ctx->device, *vertex_buffer, *vertex_buffer_memory, 0);
 
     void *data;
-    vkMapMemory(renderer->device, renderer->vertex_buffer_memory, 0, sizeof(vertices), 0, &data);
+    vkMapMemory(ctx->device, *vertex_buffer_memory, 0, sizeof(vertices), 0, &data);
     memcpy(data, vertices, sizeof(vertices));
-    vkUnmapMemory(renderer->device, renderer->vertex_buffer_memory);
+    vkUnmapMemory(ctx->device, *vertex_buffer_memory);
 }
 
-void s2_cleanup_swapchain(s2_context *renderer, uint32_t image_count)
+void s2_cleanup_swapchain(s2_device_context *ctx, uint32_t image_count)
 {
-    vkFreeCommandBuffers(renderer->device, renderer->command_pool, image_count, renderer->command_buffers);
+    vkFreeCommandBuffers(ctx->device, ctx->command_pool, image_count, ctx->command_buffers);
 
     for (uint32_t i = 0; i < image_count; i++) {
-        vkDestroyFramebuffer(renderer->device, renderer->framebuffers[i], NULL);
-        vkDestroyImageView(renderer->device, renderer->swapchain_image_views[i], NULL);
+        vkDestroyFramebuffer(ctx->device, ctx->framebuffers[i], NULL);
+        vkDestroyImageView(ctx->device, ctx->swapchain_image_views[i], NULL);
     }
 
-    vkDestroySwapchainKHR(renderer->device, renderer->swapchain, NULL);
+    vkDestroySwapchainKHR(ctx->device, ctx->swapchain, NULL);
 
-    free(renderer->command_buffers);
-    free(renderer->framebuffers);
-    free(renderer->swapchain_image_views);
-    free(renderer->swapchain_images);
+    free(ctx->command_buffers);
+    free(ctx->framebuffers);
+    free(ctx->swapchain_image_views);
+    free(ctx->swapchain_images);
 
-    renderer->command_buffers = NULL;
-    renderer->framebuffers = NULL;
-    renderer->swapchain_image_views = NULL;
-    renderer->swapchain_images = NULL;
+    ctx->command_buffers = NULL;
+    ctx->framebuffers = NULL;
+    ctx->swapchain_image_views = NULL;
+    ctx->swapchain_images = NULL;
 }
 
-void s2_record_command_buffers(s2_context *renderer, uint32_t image_count)
+void s2_record_command_buffers(s2_device_context *ctx, uint32_t image_count, VkBuffer *vertex_buffer)
 {
     float angle = 0.0f;
     for (uint32_t i = 0; i < image_count; i++) {
@@ -772,28 +772,28 @@ void s2_record_command_buffers(s2_context *renderer, uint32_t image_count)
         VkCommandBufferBeginInfo begin_info = {};
         begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
-        vkBeginCommandBuffer(renderer->command_buffers[i], &begin_info);
+        vkBeginCommandBuffer(ctx->command_buffers[i], &begin_info);
 
         VkClearValue clear_color = { .color = {{0.f,0.f,0.f,1.f}} };
 
         VkRenderPassBeginInfo rp_info = {};
         rp_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        rp_info.renderPass = renderer->render_pass;
-        rp_info.framebuffer = renderer->framebuffers[i];
+        rp_info.renderPass = ctx->render_pass;
+        rp_info.framebuffer = ctx->framebuffers[i];
         rp_info.renderArea.offset = (VkOffset2D){0,0};
-        rp_info.renderArea.extent = renderer->swapchain_extent;
+        rp_info.renderArea.extent = ctx->swapchain_extent;
         rp_info.clearValueCount = 1;
         rp_info.pClearValues = &clear_color;
 
-        vkCmdBeginRenderPass(renderer->command_buffers[i], &rp_info, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBeginRenderPass(ctx->command_buffers[i], &rp_info, VK_SUBPASS_CONTENTS_INLINE);
 
-        vkCmdBindPipeline(renderer->command_buffers[i],
+        vkCmdBindPipeline(ctx->command_buffers[i],
                           VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          renderer->graphics_pipeline);
+                          ctx->graphics_pipeline);
 
-        VkBuffer vbs[] = { renderer->vertex_buffer };
+        VkBuffer vbs[] = { *vertex_buffer };
         VkDeviceSize offsets[] = { 0 };
-        vkCmdBindVertexBuffers(renderer->command_buffers[i], 0, 1, vbs, offsets);
+        vkCmdBindVertexBuffers(ctx->command_buffers[i], 0, 1, vbs, offsets);
 
         angle += 0.005f;
 
@@ -807,20 +807,21 @@ void s2_record_command_buffers(s2_context *renderer, uint32_t image_count)
             0.0f,   0.0f, 0.0f,  1.0f,
         };
         
-        vkCmdPushConstants(renderer->command_buffers[i],
-                           renderer->pipeline_layout,
+        vkCmdPushConstants(ctx->command_buffers[i],
+                           ctx->pipeline_layout,
                            VK_SHADER_STAGE_VERTEX_BIT,
                            0, sizeof(mvp), mvp);
 
-        vkCmdDraw(renderer->command_buffers[i], 36, 1, 0, 0);
+        vkCmdDraw(ctx->command_buffers[i], 36, 1, 0, 0);
 
-        vkCmdEndRenderPass(renderer->command_buffers[i]);
+        vkCmdEndRenderPass(ctx->command_buffers[i]);
 
-        vkEndCommandBuffer(renderer->command_buffers[i]);
+        vkEndCommandBuffer(ctx->command_buffers[i]);
     }
 }
 
-void s2_recreate_swapchain(s2_context *renderer, GLFWwindow *window, uint32_t image_count)
+void s2_recreate_swapchain(s2_device_context *ctx, GLFWwindow *window, uint32_t image_count,
+                           VkBuffer *vertex_buffer, VkDeviceMemory *vertex_buffer_memory)
 {
     int width = 0, height = 0;
     while (width == 0 || height == 0) {
@@ -828,33 +829,33 @@ void s2_recreate_swapchain(s2_context *renderer, GLFWwindow *window, uint32_t im
         glfwWaitEvents();
     }
 
-    vkDeviceWaitIdle(renderer->device);
+    vkDeviceWaitIdle(ctx->device);
 
-    s2_cleanup_swapchain(renderer, image_count);
+    s2_cleanup_swapchain(ctx, image_count);
 
-    renderer->swapchain = s2_create_swapchain(
-        renderer->device,
-        renderer->physical_device,
-        renderer->surface,
+    ctx->swapchain = s2_create_swapchain(
+        ctx->device,
+        ctx->physical_device,
+        ctx->surface,
         window,
-        renderer->indices,
-        &renderer->swapchain_image_format,
-        &renderer->swapchain_extent
+        ctx->indices,
+        &ctx->swapchain_image_format,
+        &ctx->swapchain_extent
     );
 
-    vkGetSwapchainImagesKHR(renderer->device, renderer->swapchain, &image_count, NULL);
+    vkGetSwapchainImagesKHR(ctx->device, ctx->swapchain, &image_count, NULL);
 
-    renderer->swapchain_images = (VkImage*)malloc(sizeof(VkImage) * image_count);
-    vkGetSwapchainImagesKHR(renderer->device, renderer->swapchain, &image_count, renderer->swapchain_images);
+    ctx->swapchain_images = (VkImage*)malloc(sizeof(VkImage) * image_count);
+    vkGetSwapchainImagesKHR(ctx->device, ctx->swapchain, &image_count, ctx->swapchain_images);
 
-    renderer->swapchain_image_views = (VkImageView*)malloc(sizeof(VkImageView) * image_count);
+    ctx->swapchain_image_views = (VkImageView*)malloc(sizeof(VkImageView) * image_count);
 
     for (uint32_t i = 0; i < image_count; i++) {
         VkImageViewCreateInfo view_info = {};
         view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        view_info.image = renderer->swapchain_images[i];
+        view_info.image = ctx->swapchain_images[i];
         view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        view_info.format = renderer->swapchain_image_format;
+        view_info.format = ctx->swapchain_image_format;
 
         view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         view_info.subresourceRange.baseMipLevel = 0;
@@ -862,37 +863,37 @@ void s2_recreate_swapchain(s2_context *renderer, GLFWwindow *window, uint32_t im
         view_info.subresourceRange.baseArrayLayer = 0;
         view_info.subresourceRange.layerCount = 1;
 
-        vkCreateImageView(renderer->device, &view_info, NULL, &renderer->swapchain_image_views[i]);
+        vkCreateImageView(ctx->device, &view_info, NULL, &ctx->swapchain_image_views[i]);
     }
 
-    renderer->framebuffers = (VkFramebuffer*)malloc(sizeof(VkFramebuffer) * image_count);
+    ctx->framebuffers = (VkFramebuffer*)malloc(sizeof(VkFramebuffer) * image_count);
 
     for (uint32_t i = 0; i < image_count; i++) {
         VkFramebufferCreateInfo fb_info = {};
         fb_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        fb_info.renderPass = renderer->render_pass;
+        fb_info.renderPass = ctx->render_pass;
         fb_info.attachmentCount = 1;
-        fb_info.pAttachments = &renderer->swapchain_image_views[i];
-        fb_info.width = renderer->swapchain_extent.width;
-        fb_info.height = renderer->swapchain_extent.height;
+        fb_info.pAttachments = &ctx->swapchain_image_views[i];
+        fb_info.width = ctx->swapchain_extent.width;
+        fb_info.height = ctx->swapchain_extent.height;
         fb_info.layers = 1;
 
-        vkCreateFramebuffer(renderer->device, &fb_info, NULL, &renderer->framebuffers[i]);
+        vkCreateFramebuffer(ctx->device, &fb_info, NULL, &ctx->framebuffers[i]);
     }
 
-    renderer->command_buffers = (VkCommandBuffer*)malloc(sizeof(VkCommandBuffer) * image_count);
+    ctx->command_buffers = (VkCommandBuffer*)malloc(sizeof(VkCommandBuffer) * image_count);
 
     VkCommandBufferAllocateInfo alloc_info = {};
     alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    alloc_info.commandPool = renderer->command_pool;
+    alloc_info.commandPool = ctx->command_pool;
     alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     alloc_info.commandBufferCount = image_count;
 
-    vkAllocateCommandBuffers(renderer->device, &alloc_info, renderer->command_buffers);
+    vkAllocateCommandBuffers(ctx->device, &alloc_info, ctx->command_buffers);
 
-    s2_create_vertex_buffer(renderer);
+    s2_create_vertex_buffer(ctx, vertex_buffer, vertex_buffer_memory);
     
-    s2_record_command_buffers(renderer, image_count);
+    s2_record_command_buffers(ctx, image_count, vertex_buffer);
 }
 
 #endif 

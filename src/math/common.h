@@ -1,4 +1,5 @@
-/* Portions adapted from cglm (https://github.com/recp/cglm)
+/*
+ * Portions adapted from cglm (https://github.com/recp/cglm)
  * Copyright (c) 2015 Recep Aslantas
  * MIT License
  */
