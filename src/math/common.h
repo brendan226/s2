@@ -7,6 +7,22 @@
 #ifndef S2_COMMON_H
 #define S2_COMMON_H
 
+#if defined(__GNUC__) || defined(__clang__)
+#  define S2_UNLIKELY(expr) __builtin_expect(!!(expr), 0)
+#  define S2_LIKELY(expr)   __builtin_expect(!!(expr), 1)
+#else
+#  define S2_UNLIKELY(expr) (expr)
+#  define S2_LIKELY(expr)   (expr)
+#endif
+
+#if defined(_M_FP_FAST) || defined(__FAST_MATH__)
+#  define S2_FAST_MATH
+#endif
+
+#define S2_SHUFFLE4(z, y, x, w) (((z) << 6) | ((y) << 4) | ((x) << 2) | (w))
+#define S2_SHUFFLE3(z, y, x)    (((z) << 4) | ((y) << 2) | (x))
+#define S2_SHUFFLE2(y, x)       (((y) << 2) | (x))
+
 #define S2_MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
 #define S2_MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
 
@@ -50,14 +66,30 @@
 #define S2_SQRT2f     ((float)S2_SQRT2)
 #define S2_SQRT1_2f   ((float)S2_SQRT1_2)
 
-static inline float s2_rad(float deg)
+S2_INLINE float s2_rad(float deg)
 {
     return deg * S2_PIf;
 }
 
-static inline float s2_deg(float rad)
+S2_INLINE float s2_deg(float rad)
 {
     return rad * 180.0f / S2_PIf;
+}
+
+S2_INLINE void s2_perspective_rh_zo(float fov, float aspect,
+                                    float near, float far, mat4 dest)
+{
+    float f, fn;
+    s2_mat4_zero(dest);
+
+    /* f = 1.0f / tanf(fov * 0.5f); */
+    /* fn = 1.0f / (near - far); */
+
+    /* dest[0][0] = f / aspect; */
+    /* dest[1][1] = f; */
+    /* dest[2][2] = far * fn; */
+    /* dest[2][3] = -1.0f; */
+    /* dest[3][2] = near * far * fn; */
 }
 
 #endif

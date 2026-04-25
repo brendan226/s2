@@ -1,8 +1,6 @@
 #ifndef S2_MAT4_H
 #define S2_MAT4_H
 
-#include "types.h"
-
 #define S2_MAT4_IDENTITY_INIT  {{1.0f, 0.0f, 0.0f, 0.0f},    \
                                 {0.0f, 1.0f, 0.0f, 0.0f},    \
                                 {0.0f, 0.0f, 1.0f, 0.0f},    \
@@ -22,6 +20,21 @@ S2_INLINE void s2_mat4_print(mat4 m)
         printf("[ %f  %f  %f  %f ]\n",
         m[i][0], m[i][1], m[i][2], m[i][3]);
     }
+}
+
+S2_INLINE void s2_mat4_zero(mat4 m)
+{
+    for (int i = 0; i < 4; ++i) {
+        m[i][0] = 0.0f;
+        m[i][1] = 0.0f;
+        m[i][2] = 0.0f;
+        m[i][3] = 0.0f;
+    }
+}
+
+S2_INLINE void s2_mat4_copy(mat4 dest, mat4 src)
+{
+    memcpy(dest, src, sizeof(mat4));
 }
 
 S2_INLINE void s2_mat4_identity(mat4 dest)

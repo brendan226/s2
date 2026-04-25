@@ -1,13 +1,19 @@
 #ifndef S2_VULKAN_H
 #define S2_VULKAN_H
 
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
+
+#include <math.h>
+
+
 typedef struct {
     float pos[3];
     float color[3];
 } Vertex;
 
 // cube
-Vertex vertices[] = {
+static const Vertex vertices[] = {
     {{-0.5f, -0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}},
     {{ 0.5f, -0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}},
     {{ 0.5f,  0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}},
@@ -99,14 +105,19 @@ typedef struct {
     VkQueue          present_queue;
     VkFormat         swapchain_image_format;
     s2_queue_family  indices;
+    VkPhysicalDeviceMemoryProperties mem_properties;
 } s2_device_context;
+
+typedef struct {
+    VkBuffer buffer;
+    VkDeviceMemory memory;
+} s2_buffer;
 
 typedef VkDebugUtilsMessengerEXT s2_debug_utils_messenger;
 
 s2_swapchain_support query_swapchain_support(VkPhysicalDevice device, VkSurfaceKHR surface)
 {
     s2_swapchain_support details;
-
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
 
     vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &details.format_count, NULL);
@@ -176,7 +187,8 @@ VkResult s2_create_debug_utils_messenger(VkInstance instance, const VkDebugUtils
     return VK_ERROR_EXTENSION_NOT_PRESENT;
 }
 
-VkSwapchainKHR s2_create_swapchain(VkDevice device, VkPhysicalDevice physical_device, VkSurfaceKHR surface, GLFWwindow* window, s2_queue_family indices, VkFormat* swapchain_image_format, VkExtent2D* swapchain_extent)
+VkSwapchainKHR s2_create_swapchain(VkDevice device, VkPhysicalDevice physical_device, VkSurfaceKHR surface,
+                                   GLFWwindow* window, s2_queue_family indices, VkFormat* swapchain_image_format, VkExtent2D* swapchain_extent)
 {
     s2_swapchain_support details = query_swapchain_support(physical_device, surface);
 
@@ -229,7 +241,8 @@ VkSwapchainKHR s2_create_swapchain(VkDevice device, VkPhysicalDevice physical_de
     return swapchain;
 }
 
-static VKAPI_ATTR VkBool32 VKAPI_CALL callback_data(VkDebugUtilsMessageSeverityFlagBitsEXT message_severity, VkDebugUtilsMessageTypeFlagsEXT message_type, const VkDebugUtilsMessengerCallbackDataEXT* p_callback_data, void* p_user_data)
+static VKAPI_ATTR VkBool32 VKAPI_CALL callback_data(VkDebugUtilsMessageSeverityFlagBitsEXT message_severity, VkDebugUtilsMessageTypeFlagsEXT message_type,
+                                                    const VkDebugUtilsMessengerCallbackDataEXT* p_callback_data, void* p_user_data)
 {
     (void)message_severity;
     (void)message_type;
@@ -243,7 +256,8 @@ bool s2_is_complete(s2_queue_family *indices)
     return indices->graphics_found && indices->present_found;
 }
 
-void destroy_debug_utils_messengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debug_messenger, const VkAllocationCallbacks* allocator)
+void destroy_debug_utils_messengerEXT(VkInstance instance,
+                                      VkDebugUtilsMessengerEXT debug_messenger, const VkAllocationCallbacks* allocator)
 {
     PFN_vkDestroyDebugUtilsMessengerEXT func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
     if (func) {
@@ -294,7 +308,6 @@ void populate_debug_messenger(VkDebugUtilsMessengerCreateInfoEXT *info)
 const char** s2_get_required_extensions(uint32_t* extension_count)
 {
     const char** glfw_extensions = glfwGetRequiredInstanceExtensions(extension_count);
-
     if (enable_validation_layers) {
         const char** extensions = (const char**)malloc((*extension_count + 1) * sizeof(char*));
         memcpy(extensions, glfw_extensions, *extension_count * sizeof(char*));
@@ -302,7 +315,6 @@ const char** s2_get_required_extensions(uint32_t* extension_count)
         (*extension_count)++;
         return extensions;
     }
-
     return glfw_extensions;
 }
 
@@ -347,6 +359,8 @@ void s2_create_instance(VkInstance *instance)
         fprintf(stderr, "Failed to create Vulkan instance.\n");
         exit(EXIT_FAILURE);
     }
+
+    free(extensions);
 }
 
 void s2_setup_debug_messenger(VkInstance instance, VkDebugUtilsMessengerEXT *debug_messenger)
@@ -355,7 +369,6 @@ void s2_setup_debug_messenger(VkInstance instance, VkDebugUtilsMessengerEXT *deb
 
     VkDebugUtilsMessengerCreateInfoEXT info;
     populate_debug_messenger(&info);
-
     if (s2_create_debug_utils_messenger(instance, &info, NULL, debug_messenger) != VK_SUCCESS) {
         fprintf(stderr, "Failed to set up debug messenger!\n");
     }
@@ -376,15 +389,12 @@ s2_queue_family s2_find_queue_families(VkPhysicalDevice device, VkSurfaceKHR sur
             indices.graphics_family = i;
             indices.graphics_found = true;
         }
-
         VkBool32 present_support = false;
         vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &present_support);
-
         if (present_support) {
             indices.present_family = i;
             indices.present_found = true;
-        }
-
+        }       
         if (s2_is_complete(&indices)) break;
     }
 
@@ -422,7 +432,8 @@ bool s2_is_device_suitable(VkPhysicalDevice device, VkSurfaceKHR surface)
     return s2_is_complete(&indices) && swapchain_ext_found;
 }
 
-void s2_pick_physical_device(VkInstance instance, VkSurfaceKHR surface, VkPhysicalDevice *physical_device)
+void s2_pick_physical_device(s2_device_context *ctx, VkInstance instance,
+                             VkSurfaceKHR surface, VkPhysicalDevice *physical_device)
 {
     uint32_t device_count = 0;
     vkEnumeratePhysicalDevices(instance, &device_count, NULL);
@@ -448,6 +459,9 @@ void s2_pick_physical_device(VkInstance instance, VkSurfaceKHR surface, VkPhysic
         fprintf(stderr, "Failed to find a suitable GPU!\n");
         exit(EXIT_FAILURE);
     }
+
+    vkGetPhysicalDeviceMemoryProperties(ctx->physical_device,
+                                        &ctx->mem_properties);
 }
 
 void s2_create_logical_device(VkPhysicalDevice physical_device, s2_queue_family indices,
@@ -701,45 +715,18 @@ VkPipeline s2_create_graphics_pipeline(VkDevice device, VkExtent2D extent, VkSha
     return graphics_pipeline;
 }
 
-uint32_t s2_find_memory_type(VkPhysicalDevice physical_device, uint32_t type_filter, VkMemoryPropertyFlags properties)
+uint32_t s2_find_memory_type(
+    s2_device_context *ctx,
+    uint32_t type_filter,
+    VkMemoryPropertyFlags properties)
 {
-    VkPhysicalDeviceMemoryProperties mem_props;
-    vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_props);
-    for (uint32_t i = 0; i < mem_props.memoryTypeCount; i++)
+    for (uint32_t i = 0; i < ctx->mem_properties.memoryTypeCount; i++)
         if ((type_filter & (1 << i)) &&
-            (mem_props.memoryTypes[i].propertyFlags & properties) == properties)
+            (ctx->mem_properties.memoryTypes[i].propertyFlags & properties) == properties)
             return i;
+
     fprintf(stderr, "Failed to find suitable memory type\n");
     exit(EXIT_FAILURE);
-}
-
-void s2_create_vertex_buffer(s2_device_context *ctx, VkBuffer *vertex_buffer, VkDeviceMemory *vertex_buffer_memory)
-{
-    VkBufferCreateInfo buf_info = {};
-    buf_info.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    buf_info.size        = sizeof(vertices);
-    buf_info.usage       = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    buf_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    vkCreateBuffer(ctx->device, &buf_info, NULL, vertex_buffer);
-
-    VkMemoryRequirements mem_reqs;
-    vkGetBufferMemoryRequirements(ctx->device, *vertex_buffer, &mem_reqs);
-
-    VkMemoryAllocateInfo alloc_info = {};
-    alloc_info.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc_info.allocationSize  = mem_reqs.size;
-    alloc_info.memoryTypeIndex = s2_find_memory_type(
-        ctx->physical_device,
-        mem_reqs.memoryTypeBits,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    );
-    vkAllocateMemory(ctx->device, &alloc_info, NULL, vertex_buffer_memory);
-    vkBindBufferMemory(ctx->device, *vertex_buffer, *vertex_buffer_memory, 0);
-
-    void *data;
-    vkMapMemory(ctx->device, *vertex_buffer_memory, 0, sizeof(vertices), 0, &data);
-    memcpy(data, vertices, sizeof(vertices));
-    vkUnmapMemory(ctx->device, *vertex_buffer_memory);
 }
 
 void s2_cleanup_swapchain(s2_device_context *ctx, uint32_t image_count)
@@ -818,6 +805,124 @@ void s2_record_command_buffers(s2_device_context *ctx, uint32_t image_count, VkB
 
         vkEndCommandBuffer(ctx->command_buffers[i]);
     }
+}
+
+void s2_create_buffer(
+    s2_device_context *ctx,
+    VkDeviceSize size,
+    VkBufferUsageFlags usage,
+    VkMemoryPropertyFlags properties,
+    VkBuffer *buffer,
+    VkDeviceMemory *memory)
+{
+    VkBufferCreateInfo buf_info = {};
+    buf_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buf_info.size = size;
+    buf_info.usage = usage;
+    buf_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    vkCreateBuffer(ctx->device, &buf_info, NULL, buffer);
+
+    VkMemoryRequirements mem_reqs;
+    vkGetBufferMemoryRequirements(ctx->device, *buffer, &mem_reqs);
+
+    VkMemoryAllocateInfo alloc_info = {};
+    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    alloc_info.allocationSize = mem_reqs.size;
+    alloc_info.memoryTypeIndex = s2_find_memory_type(
+        ctx,
+        mem_reqs.memoryTypeBits,
+        properties
+    );
+
+    vkAllocateMemory(ctx->device, &alloc_info, NULL, memory);
+    vkBindBufferMemory(ctx->device, *buffer, *memory, 0);
+}
+
+void s2_upload_to_memory(
+    VkDevice device,
+    VkDeviceMemory memory,
+    const void *src,
+    VkDeviceSize size)
+{
+    void *data;
+    vkMapMemory(device, memory, 0, size, 0, &data);
+    memcpy(data, src, (size_t)size);
+    vkUnmapMemory(device, memory);
+}
+
+void s2_copy_buffer(s2_device_context *ctx,
+                    VkBuffer src,
+                    VkBuffer dst,
+                    VkDeviceSize size)
+{
+    VkCommandBufferAllocateInfo alloc_info = {};
+    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc_info.commandPool = ctx->command_pool;
+    alloc_info.commandBufferCount = 1;
+
+    VkCommandBuffer cmd;
+    vkAllocateCommandBuffers(ctx->device, &alloc_info, &cmd);
+
+    VkCommandBufferBeginInfo begin_info = {};
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    vkBeginCommandBuffer(cmd, &begin_info);
+
+    VkBufferCopy copy = {};
+    copy.size = size;
+    vkCmdCopyBuffer(cmd, src, dst, 1, &copy);
+
+    vkEndCommandBuffer(cmd);
+
+    VkSubmitInfo submit = {};
+    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers = &cmd;
+
+    vkQueueSubmit(ctx->graphics_queue, 1, &submit, VK_NULL_HANDLE);
+    vkQueueWaitIdle(ctx->graphics_queue);
+
+    vkFreeCommandBuffers(ctx->device, ctx->command_pool, 1, &cmd);
+}
+
+void s2_create_vertex_buffer(s2_device_context *ctx,
+                             VkBuffer *vertex_buffer,
+                             VkDeviceMemory *vertex_memory)
+{
+    VkDeviceSize size = sizeof(vertices);
+
+    VkBuffer staging_buffer;
+    VkDeviceMemory staging_memory;
+
+    s2_create_buffer(
+        ctx,
+        size,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        &staging_buffer,
+        &staging_memory
+    );
+
+    s2_upload_to_memory(ctx->device, staging_memory, vertices, size);
+
+    s2_create_buffer(
+        ctx,
+        size,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        vertex_buffer,
+        vertex_memory
+    );
+
+    s2_copy_buffer(ctx, staging_buffer, *vertex_buffer, size);
+
+    vkDestroyBuffer(ctx->device, staging_buffer, NULL);
+    vkFreeMemory(ctx->device, staging_memory, NULL);
 }
 
 void s2_recreate_swapchain(s2_device_context *ctx, GLFWwindow *window, uint32_t image_count,

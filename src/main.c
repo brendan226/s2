@@ -6,30 +6,38 @@
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
-#include <math.h>
-#include <time.h>
 #include <windows.h>
 
-#include "window.h"
-#include "backend/vulkan.h"
 #include "math/math.h"
+#include "backend/vulkan.h"
+#include "window.h"
+#include "camera.h"
 
 int main(void)
 {
+    /* vec3 pos = S2_VEC3_ZERO; */
+    /* vec3 up = S2_VEC3_ZERO; */
+    
     s2_window window;
-    s2_window_init(&window);    
+    s2_window_init(&window);
+    s2_window_fullscreen(&window);
 
+    /* s2_camera camera; */
+    /* s2_camera_init(&camera, &window, pos, up, 16.9f, 90.0f); */
+    /* s2_camera_set_view(&camera, &window); */
+    
     s2_device_context ctx = {0};
     s2_debug_utils_messenger debug_messenger;
-    
     s2_create_instance(&ctx.instance);
     s2_setup_debug_messenger(ctx.instance, &debug_messenger);
     s2_create_suface(ctx.instance, &ctx.surface, window.id);
-    s2_pick_physical_device(ctx.instance, ctx.surface, &ctx.physical_device);
+    s2_pick_physical_device(&ctx, ctx.instance,
+                            ctx.surface, &ctx.physical_device);
 
     ctx.indices = s2_find_queue_families(ctx.physical_device, ctx.surface);
 
-    s2_create_logical_device(ctx.physical_device, ctx.indices, &ctx.device, &ctx.graphics_queue, &ctx.present_queue);
+    s2_create_logical_device(ctx.physical_device, ctx.indices,
+                             &ctx.device, &ctx.graphics_queue, &ctx.present_queue);
 
     ctx.swapchain = s2_create_swapchain(ctx.device, ctx.physical_device, ctx.surface, window.id,
                                                 ctx.indices, &ctx.swapchain_image_format, &ctx.swapchain_extent);
@@ -54,7 +62,8 @@ int main(void)
             .layerCount = 1
         };
 
-        if (vkCreateImageView(ctx.device, &view_info, NULL, &ctx.swapchain_image_views[i]) != VK_SUCCESS) {
+        if (vkCreateImageView(ctx.device, &view_info, NULL,
+                              &ctx.swapchain_image_views[i]) != VK_SUCCESS) {
             fprintf(stderr, "Failed to create image view %d\n", i);
             exit(EXIT_FAILURE);
         }
@@ -196,7 +205,8 @@ int main(void)
                                                 VK_NULL_HANDLE,
                                                 &image_index);
         if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-            s2_recreate_swapchain(&ctx, window.id, image_count, &vertex_buffer, &vertex_buffer_memory);
+            s2_recreate_swapchain(&ctx, window.id, image_count,
+                                  &vertex_buffer, &vertex_buffer_memory);
             continue;
         }
 
@@ -216,8 +226,10 @@ int main(void)
         rp_info.clearValueCount = 1;
         rp_info.pClearValues = &clear_color;
 
-        vkCmdBeginRenderPass(ctx.command_buffers[image_index], &rp_info, VK_SUBPASS_CONTENTS_INLINE);
-        vkCmdBindPipeline(ctx.command_buffers[image_index], VK_PIPELINE_BIND_POINT_GRAPHICS, ctx.graphics_pipeline);
+        vkCmdBeginRenderPass(ctx.command_buffers[image_index],
+                             &rp_info, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(ctx.command_buffers[image_index],
+                          VK_PIPELINE_BIND_POINT_GRAPHICS, ctx.graphics_pipeline);
 
         VkBuffer vbs[] = { vertex_buffer };
         VkDeviceSize offsets[] = { 0 };
@@ -242,7 +254,8 @@ int main(void)
 
         vkCmdDraw(ctx.command_buffers[image_index], 36, 1, 0, 0);
 
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), ctx.command_buffers[image_index]);
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),
+                                        ctx.command_buffers[image_index]);
 
         vkCmdEndRenderPass(ctx.command_buffers[image_index]);
         vkEndCommandBuffer(ctx.command_buffers[image_index]);
@@ -271,7 +284,8 @@ int main(void)
         result = vkQueuePresentKHR(ctx.present_queue, &present_info);
 
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-            s2_recreate_swapchain(&ctx, window.id, image_count, &vertex_buffer, &vertex_buffer_memory);
+            s2_recreate_swapchain(&ctx, window.id, image_count,
+                                  &vertex_buffer, &vertex_buffer_memory);
             continue;
         }
     }
@@ -320,7 +334,7 @@ int main(void)
     vkDestroySurfaceKHR(ctx.instance, ctx.surface, NULL);
     vkDestroyInstance(ctx.instance, NULL);
     
-    glfwDestroyWindow(window.id);
+    s2_window_clean(&window);
     glfwTerminate();
 
     return 0;

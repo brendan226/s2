@@ -1,6 +1,6 @@
-CC = g++
-CFLAGS = -g -Ilib/glfw/include -Ilib/vulkan/Include -Ilib/imgui
-LDFLAGS = -g -Llib/glfw/lib -Llib/vulkan/Lib lib/imgui/libimgui.a -lglfw3 -lgdi32 -luser32 -lvulkan-1 
+CC = g++ -mavx2 -mfma
+CFLAGS = -Ilib/glfw/include -Ilib/vulkan/Include -Ilib/imgui
+LDFLAGS = -Llib/glfw/lib -Llib/vulkan/Lib lib/imgui/libimgui.a -lglfw3 -lgdi32 -luser32 -lvulkan-1 
 
 SRC = $(wildcard src/**/*.c) $(wildcard src/*.c) $(wildcard src/**/**/*.c) $(wildcard src/**/**/**/*.c) 
 OBJ = $(SRC:.c=.o)
