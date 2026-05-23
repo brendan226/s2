@@ -1,6 +1,8 @@
+export VK_LAYER_PATH = $(CURDIR)/lib/vulkan/Bin
+
 CC = g++ -mavx2 -mfma
-CFLAGS = -Ilib/glfw/include -Ilib/vulkan/Include -Ilib/imgui
-LDFLAGS = -Llib/glfw/lib -Llib/vulkan/Lib lib/imgui/libimgui.a -lglfw3 -lgdi32 -luser32 -lvulkan-1 
+CFLAGS = -Ilib/CUDA/v13.2/include -Ilib/glfw/include -Ilib/vulkan/Include -Ilib/imgui
+LDFLAGS = -Llib/CUDA/v13.2/lib -Llib/glfw/lib -Llib/vulkan/Lib lib/imgui/libimgui.a -lglfw3 -lgdi32 -luser32 -lvulkan-1
 
 SRC = $(wildcard src/**/*.c) $(wildcard src/*.c) $(wildcard src/**/**/*.c) $(wildcard src/**/**/**/*.c) 
 OBJ = $(SRC:.c=.o)

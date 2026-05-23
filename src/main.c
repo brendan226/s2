@@ -14,17 +14,10 @@
 #include "camera.h"
 
 int main(void)
-{
-    /* vec3 pos = S2_VEC3_ZERO; */
-    /* vec3 up = S2_VEC3_ZERO; */
-    
+{    
     s2_window window;
     s2_window_init(&window);
     s2_window_fullscreen(&window);
-
-    /* s2_camera camera; */
-    /* s2_camera_init(&camera, &window, pos, up, 16.9f, 90.0f); */
-    /* s2_camera_set_view(&camera, &window); */
     
     s2_device_context ctx = {0};
     s2_debug_utils_messenger debug_messenger;
