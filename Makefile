@@ -1,22 +1,26 @@
 export VK_LAYER_PATH = $(CURDIR)/lib/vulkan/Bin
 
-CC = g++ -mavx2 -mfma
-CFLAGS = -Ilib/CUDA/v13.2/include -Ilib/glfw/include -Ilib/vulkan/Include -Ilib/imgui
-LDFLAGS = -Llib/CUDA/v13.2/lib -Llib/glfw/lib -Llib/vulkan/Lib lib/imgui/libimgui.a -lglfw3 -lgdi32 -luser32 -lvulkan-1
+CC = gcc -g
+CFLAGS = -Ilib/vulkan/Include -Ilib/CUDA/v13.2/include
+LDFLAGS = -Llib/vulkan/Lib -Llib/CUDA/v13.2/lib/x64 -lgdi32 -luser32 -ldwmapi -lpsapi -lcuda
 
 SRC = $(wildcard src/**/*.c) $(wildcard src/*.c) $(wildcard src/**/**/*.c) $(wildcard src/**/**/**/*.c) 
-OBJ = $(SRC:.c=.o)
+OBJ = $(SRC:.c=.o) 
 BIN = bin
+VERT_SPV = res/shaders/vert.spv
+FRAG_SPV = res/shaders/frag.spv
 
 .PHONY: all clean
 
 all: libs game
 
-comp-shaders:
+$(VERT_SPV) $(FRAG_SPV):
 	.\compile.bat
 
-libs: comp-shaders
+$(IMGUI_LIB):
 	cd lib/imgui && make
+
+libs: $(VERT_SPV) $(FRAG_SPV) $(IMGUI_LIB)
 
 dirs:
 	mkdir -p .\$(BIN)
@@ -25,10 +29,10 @@ run: all
 	$(BIN)/S2
 
 game: $(OBJ)
-	$(CC) -o $(BIN)/S2 $^ $(LDFLAGS)
+	$(CC) -o $(BIN)/S2 $^ res/res.o $(LDFLAGS)
 
 %.o: %.c
 	$(CC) -o $@ -c $< $(CFLAGS)
 
 clean:
-	del /Q bin\*.exe src\main.o lib\imgui\*.o res\shaders\*.spv
+	del /Q bin\*.exe src\*.o 
